@@ -18,7 +18,7 @@ Build and compare patient cohorts from records and clinical notes, with inclusio
 Patient Cohort Engine turns free-text clinical notes into a patient knowledge graph and answers cohort questions on it, as tables.
 
 1. **Extract.** Two jobs read each note through a text model and return structured rows: drug usage (drug, dose, frequency, RxNorm code) and clinical entities (symptoms, procedures, tests, body parts, conditions). Answers that fail validation go to `rejected_*` tables with the reason.
-2. **Build the graph.** One SQL job turns the extracted rows into two tables, `graph_nodes` and `graph_edges`: patient, RxNorm code, drug, and the drug's strength and frequency, plus the patient's symptoms, procedures, tests and conditions. Every edge belongs to one patient on one date.
+2. **Build the graph.** One SQL job turns the extracted rows into two tables, `graph_nodes` and `graph_edges`: patient, RxNorm code, drug, and the drug's strength and frequency, plus the patient's symptoms, procedures, tests and conditions. Every edge records the note and text span it came from.
 3. **Ask cohort questions.** Six SQL jobs return the patients that match, with the evidence rows behind each match:
    - who is prescribed a drug, optionally within a date window;
    - who takes a drug at or above a dose;
@@ -32,7 +32,7 @@ Step 1 needs a text model. Steps 2 and 3 are plain SQL on DuckDB and need none.
 ## How it works in Facthory
 
 - Jobs read tables and write tables. They draw no screens and own no storage; querying, charting, joining with your own data, permissions and audit belong to the platform.
-- The knowledge graph is two tables, not a graph database. Nodes are `(node_type, name)`; edges are `(source, relationship, target)` per patient and date. Any graph view can be drawn from these tables.
+- The knowledge graph is two tables, not a graph database. See "Graph tables" below. Any graph view can be drawn from them.
 - The agent skill in `skills/` and the starter page in `pages/` describe how to work with the tables and the jobs.
 - Sample data in this repository is synthetic. No real patient data.
 
@@ -57,14 +57,23 @@ In this repository the knowledge graph is kept as tables: one table of nodes and
 | `extract_posology` | Extracts drug-usage relations (dose, frequency and more) with RxNorm codes from notes | `notes` | `posology`, `rejected_posology` |
 | `extract_entities` | Extracts symptoms, procedures, tests, body parts and conditions from notes | `notes` | `clinical_entities`, `rejected_entities` |
 | `build_knowledge_graph` | Builds the clinical knowledge graph as node and edge tables | `notes`, `posology`, `clinical_entities` | `graph_nodes`, `graph_edges` |
-| `cohort_by_drug` | Patients prescribed a drug, optionally within a date window | `graph_edges` | `cohort` |
-| `cohort_drug_strength` | Patients whose drug has a strength relation at or above a dose in mg | `graph_edges` | `cohort` |
-| `cohort_drug_interaction` | Patients on a primary drug who also take one of a family of interacting drugs | `graph_edges` | `cohort` |
+| `cohort_by_drug` | Patients prescribed a drug, optionally within a date window | `graph_nodes`, `graph_edges` | `cohort` |
+| `cohort_drug_strength` | Patients whose drug has a strength relation at or above a dose in mg | `graph_nodes`, `graph_edges` | `cohort` |
+| `cohort_drug_interaction` | Patients on a primary drug who also take one of a family of interacting drugs | `graph_nodes`, `graph_edges` | `cohort` |
 | `cohort_by_procedure` | Patients who had a named procedure | `clinical_entities` | `cohort` |
 | `cohort_by_symptoms` | Patients with several named symptoms on the same date | `clinical_entities` | `cohort` |
 | `cohort_by_condition` | Patients with a condition and a named symptom on the same date | `clinical_entities` | `cohort` |
 
 The two extraction jobs take a `TextModel` (see `src/patient_cohort_engine/text/interface.py`) as a third argument; Facthory provides model access. Named measures live in `metrics/`.
+
+### Graph tables
+
+The graph follows the "graph tables, draft 0" shape that all Facthory solutions share.
+
+- `graph_nodes`: `node_id` (stable across runs, `<node_type>:<key>`), `node_type`, `key` (the natural key, with its code system where there is one, for example `rxnorm:11289`), `label`, `properties` (JSON text).
+- `graph_edges`: `edge_id` (stable hash of source, relationship, target and evidence), `source_id`, `target_id` (null when the fact is a literal), `relationship`, `value` (the literal, else null), `valid_from` and `valid_to` (dates the fact held; `valid_to` is null when unknown), `evidence_document_id`, `evidence_start`, `evidence_end` (character offsets in that note; null when the text was not found), `confidence` (null when not scored), `properties`.
+
+Every node an edge names exists in `graph_nodes`. The medication path is `Patient -RXNORM_CODE-> RxNorm -DRUG_GENERIC-> Drug`, and the drug's strength, frequency and so on are literal edges from the drug (`STRENGTH`, `FREQUENCY`, with the text in `value`). Findings are `Patient -IS_SYMPTOM | IS_DSD | IS_TEST | IS_PROCEDURE | IS_BODYPART-> finding`. A drug node is shared by all patients; the note in `evidence_document_id` says which patient and note a fact belongs to.
 
 ## Data
 
@@ -84,7 +93,9 @@ uv run pytest
 
 - **No clinical text model ships.** `extract_posology` and `extract_entities` run through the `TextModel` interface. The only implementation is `text/recorded.py`, which replays recorded answers for the sample notes. A model must be plugged in behind `text/interface.py` before new notes can be processed. A rules-based stand-in for clinical extraction is deliberately not provided.
 - **RxNorm resolution** happens inside the extraction prompt. There is no vocabulary lookup, and the codes in the sample are illustrative.
-- **The graph tables have no node ids and no link back to the source text** (note id or span). Edges identify nodes by type and name only.
+- **Evidence spans are found by text search**, not reported by the model: `evidence_start` and `evidence_end` mark the first occurrence of the extracted text in the note, and are null when it is not found (for example a word the model normalised). `valid_to` is always null.
+- **Patient gender and date of birth** are in `graph_nodes.properties` as JSON text, as the contract asks; filter them with `json_extract_string`.
+- **A query that reads `graph_edges` several times** (the drug cohorts do) counts it as one dataset in the analytics engine, from reading the engine's request format; this has not been run against the engine.
 - **No graph algorithms** are included. Paths, similarity and communities would be added as jobs over the edge tables.
 - **Installing into Facthory is not available yet.** The code is verified on the sample data on a laptop only.
 - **The sample is small.** Six notes show the shape of the tables, not realistic volumes.

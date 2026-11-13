@@ -5,7 +5,7 @@ Build and compare patient cohorts from clinical notes.
 ## Start here
 
 1. Look at the sample tables in `data/sample` (synthetic): `notes`, `posology`, `clinical_entities`, and the graph tables `graph_nodes` and `graph_edges` they build.
-2. Read `graph_edges`: every row is one piece of evidence — `patient -> rxnorm -> drug -> chunk` for prescriptions, `patient -> symptom / procedure / condition` for findings, all tied to a patient and a date.
+2. Read `graph_nodes` and `graph_edges`: every edge is one fact — `Patient -> RxNorm -> Drug` plus the drug's strength and frequency for prescriptions, `Patient -> symptom / procedure / condition` for findings. Each fact names the note it came from and the text span, and the date it held.
 3. Ask a cohort question and run its job:
 
 | Question | Job |

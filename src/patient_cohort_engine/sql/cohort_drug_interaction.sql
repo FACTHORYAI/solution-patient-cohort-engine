@@ -2,10 +2,18 @@
 -- drugs. $primary_drug matches anywhere in the drug name; $interacting_terms is a
 -- comma-separated list of terms matched the same way.
 WITH drug_use AS (
-    SELECT subject_id, event_date, source_name AS drug_name
-    FROM graph_edges
-    WHERE source_type = 'Drug'
-      AND relationship <> 'DRUG_GENERIC'
+    SELECT patient.key AS subject_id,
+           rx.valid_from AS event_date,
+           drug.label AS drug_name
+    FROM graph_edges AS rx
+    JOIN graph_nodes AS patient
+        ON patient.node_id = rx.source_id AND patient.node_type = 'Patient'
+    JOIN graph_edges AS dg
+        ON dg.source_id = rx.target_id
+       AND dg.relationship = 'DRUG_GENERIC'
+       AND dg.evidence_document_id = rx.evidence_document_id
+    JOIN graph_nodes AS drug ON drug.node_id = dg.target_id
+    WHERE rx.relationship = 'RXNORM_CODE'
 ),
 interacting AS (
     SELECT subject_id,

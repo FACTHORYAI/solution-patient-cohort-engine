@@ -64,21 +64,21 @@ outputs = ["graph_nodes", "graph_edges"]
 name = "cohort_by_drug"
 entry = "patient_cohort_engine.jobs.cohort_by_drug:run"
 mode = "call"
-inputs = ["graph_edges"]
+inputs = ["graph_nodes", "graph_edges"]
 outputs = ["cohort"]
 
 [[job]]
 name = "cohort_drug_strength"
 entry = "patient_cohort_engine.jobs.cohort_drug_strength:run"
 mode = "call"
-inputs = ["graph_edges"]
+inputs = ["graph_nodes", "graph_edges"]
 outputs = ["cohort"]
 
 [[job]]
 name = "cohort_drug_interaction"
 entry = "patient_cohort_engine.jobs.cohort_drug_interaction:run"
 mode = "call"
-inputs = ["graph_edges"]
+inputs = ["graph_nodes", "graph_edges"]
 outputs = ["cohort"]
 
 [[job]]

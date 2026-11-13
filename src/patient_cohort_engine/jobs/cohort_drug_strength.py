@@ -10,7 +10,7 @@ from patient_cohort_engine import io
 from patient_cohort_engine.jobs._duck import align, run_query
 from patient_cohort_engine.schemas import COHORT_DRUG_STRENGTH
 
-INPUTS = ("graph_edges",)
+INPUTS = ("graph_nodes", "graph_edges")
 OUTPUTS = ("cohort",)
 
 

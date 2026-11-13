@@ -34,6 +34,7 @@ def run(inputs: dict[str, pa.Table], params: Params, model: TextModel) -> dict[s
         except ValueError as error:
             rejected.append(
                 {
+                    "note_id": note["note_id"],
                     "subject_id": note["subject_id"],
                     "event_date": note["event_date"],
                     "reason": str(error),
@@ -46,6 +47,7 @@ def run(inputs: dict[str, pa.Table], params: Params, model: TextModel) -> dict[s
             if reason:
                 rejected.append(
                     {
+                        "note_id": note["note_id"],
                         "subject_id": note["subject_id"],
                         "event_date": note["event_date"],
                         "reason": reason,
@@ -55,6 +57,7 @@ def run(inputs: dict[str, pa.Table], params: Params, model: TextModel) -> dict[s
                 continue
             rows.append(
                 {
+                    "note_id": note["note_id"],
                     "subject_id": note["subject_id"],
                     "event_date": note["event_date"],
                     "relation": item["relation"],
