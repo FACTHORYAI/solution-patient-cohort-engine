@@ -77,7 +77,7 @@ Every node an edge names exists in `graph_nodes`. The medication path is `Patien
 
 ## Data
 
-The sample tables in `data/sample/` are synthetic and CC0-1.0: `notes`, `posology`, `clinical_entities`, `graph_nodes` and `graph_edges`. They are small (6 notes, 6 patients). See [data/README.md](data/README.md) for origin and licence per file. No real patient data.
+The sample tables in `data/sample/` are synthetic and CC0-1.0: `notes`, `posology`, `clinical_entities`, `graph_nodes` and `graph_edges`. They hold 139 invented notes for 48 patients (2023 to 2025), 165 graph nodes and 2,158 edges, made by `data/generate_sample.py`. See [data/README.md](data/README.md) for origin and licence per file. No real patient data.
 
 ## Run it locally
 
@@ -98,7 +98,7 @@ uv run pytest
 - **A query that reads `graph_edges` several times** (the drug cohorts do) counts it as one dataset in the analytics engine, from reading the engine's request format; this has not been run against the engine.
 - **No graph algorithms** are included. Paths, similarity and communities would be added as jobs over the edge tables.
 - **Installing into Facthory is not available yet.** The code is verified on the sample data on a laptop only.
-- **The sample is small.** Six notes show the shape of the tables, not realistic volumes.
+- **The sample is invented and small.** It is generated from templates, so its notes are cleaner than real clinical text, and it shows the shape of the tables, not realistic volumes or accuracy. The extracted rows are exact by construction, not model output.
 - **The Dockerfile has not been built or verified.**
 - **DuckDB 2.x only.** The code uses the DuckDB 2.0 Arrow API (`to_arrow_table`).
 - No orchestrator or DAG files: Facthory, or a scheduler, calls the jobs.
