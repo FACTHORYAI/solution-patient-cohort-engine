@@ -15,7 +15,15 @@ WITH pos AS (
            p.rxnorm_code,
            lower(trim(p.drug_resolution)) AS drug_key,
            instr(n.text, p.chunk1) - 1 AS start1,
-           instr(n.text, p.chunk2) - 1 AS start2
+           -- the detail (strength, frequency, ...) is searched from the drug mention onwards,
+           -- so two drugs with the same strength get their own spans
+           CASE
+               WHEN instr(n.text, p.chunk1) > 0
+                    AND instr(substr(n.text, instr(n.text, p.chunk1)), p.chunk2) > 0
+               THEN instr(n.text, p.chunk1) - 1
+                    + instr(substr(n.text, instr(n.text, p.chunk1)), p.chunk2) - 1
+               ELSE instr(n.text, p.chunk2) - 1
+           END AS start2
     FROM posology AS p
     LEFT JOIN notes AS n ON n.note_id = p.note_id
 ),

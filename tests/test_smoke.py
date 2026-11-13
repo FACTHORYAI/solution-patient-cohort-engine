@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from patient_cohort_engine.jobs.cohort_by_condition import Params as ConditionPa
 from patient_cohort_engine.jobs.cohort_by_drug import Params as DrugParams
 from patient_cohort_engine.jobs.cohort_by_procedure import Params as ProcedureParams
 from patient_cohort_engine.jobs.cohort_by_symptoms import Params as SymptomsParams
+from patient_cohort_engine.jobs.cohort_drug_interaction import NSAID_TERMS
 from patient_cohort_engine.jobs.cohort_drug_interaction import Params as InteractionParams
 from patient_cohort_engine.jobs.cohort_drug_strength import Params as StrengthParams
 from patient_cohort_engine.jobs.extract_entities import Params as EntityParams
@@ -110,19 +112,42 @@ def test_graph_tables_follow_the_contract(tables: dict) -> None:
             assert span.lower() == (edge["value"] or span).lower()
 
 
+# The cohort tests compare each job with a plain-Python reference over the extracted rows.
+
+
+def rows(tables: dict, name: str) -> list[dict]:
+    return tables[name].to_pylist()
+
+
 def test_cohort_by_drug(tables: dict) -> None:
-    cohort = run_job("cohort_by_drug", graph(tables), DrugParams(drug_name="lasix"))["cohort"]
+    cohort = run_job("cohort_by_drug", graph(tables), DrugParams(drug_name="warfarin"))["cohort"]
     assert cohort.schema.equals(COHORT_DRUG)
-    assert subjects(cohort) == {"10001"}
+    expected = {
+        r["subject_id"] for r in rows(tables, "posology") if r["drug_resolution"] == "warfarin"
+    }
+    assert len(expected) >= 3
+    assert subjects(cohort) == expected
+    assert set(cohort.column("rxnorm_code").to_pylist()) == {"11289"}
 
 
 def test_cohort_by_drug_date_window(tables: dict) -> None:
     cohort = run_job(
         "cohort_by_drug",
         graph(tables),
-        DrugParams(drug_name="isosorbide", start_date="2060-01-01", end_date="2063-01-01"),
+        DrugParams(drug_name="warfarin", start_date="2024-06-01", end_date="2025-01-01"),
     )["cohort"]
-    assert subjects(cohort) == {"10003"}
+    expected = {
+        r["subject_id"]
+        for r in rows(tables, "posology")
+        if r["drug_resolution"] == "warfarin"
+        and dt.date(2024, 6, 1) <= r["event_date"] < dt.date(2025, 1, 1)
+    }
+    assert expected
+    assert subjects(cohort) == expected
+    assert all(
+        dt.date(2024, 6, 1) <= d < dt.date(2025, 1, 1)
+        for d in cohort.column("event_date").to_pylist()
+    )
 
 
 def test_cohort_drug_strength(tables: dict) -> None:
@@ -132,36 +157,69 @@ def test_cohort_drug_strength(tables: dict) -> None:
         StrengthParams(drug_name="warfarin", min_strength_mg=3.0),
     )["cohort"]
     assert cohort.schema.equals(COHORT_DRUG_STRENGTH)
-    assert subjects(cohort) == {"10002"}
-    assert cohort.column("strength").to_pylist() == ["5 mg"]
-    assert cohort.column("rxnorm_code").to_pylist() == ["11289"]
+    expected = {
+        r["subject_id"]
+        for r in rows(tables, "posology")
+        if r["drug_resolution"] == "warfarin"
+        and r["entity2"] == "STRENGTH"
+        and float(r["chunk2"].split()[0]) >= 3.0
+    }
+    assert expected
+    assert subjects(cohort) == expected
+    assert set(cohort.column("rxnorm_code").to_pylist()) == {"11289"}
 
 
 def test_cohort_drug_interaction(tables: dict) -> None:
     cohort = run_job("cohort_drug_interaction", graph(tables), InteractionParams())["cohort"]
     assert cohort.schema.equals(COHORT_DRUG_INTERACTION)
-    assert subjects(cohort) == {"10004"}
-    assert cohort.column("interacting_drugs").to_pylist() == [["ibuprofen"]]
+    nsaids = set(NSAID_TERMS.split(","))
+    by_patient: dict[str, set[str]] = {}
+    for r in rows(tables, "posology"):
+        by_patient.setdefault(r["subject_id"], set()).add(r["drug_resolution"])
+    expected = {
+        subject for subject, drugs in by_patient.items() if "warfarin" in drugs and drugs & nsaids
+    }
+    assert len(expected) >= 2
+    assert subjects(cohort) == expected
+    assert all(drugs for drugs in cohort.column("interacting_drugs").to_pylist())
+
+
+def entity_subjects(tables: dict, label: str, terms: list[str]) -> set[str]:
+    return {
+        r["subject_id"]
+        for r in rows(tables, "clinical_entities")
+        if r["ner_label"] == label and any(t in r["chunk"].lower() for t in terms)
+    }
 
 
 def test_cohort_by_procedure(tables: dict) -> None:
+    terms = ["hernia repair", "appendectomy", "cholecystectomy"]
     cohort = run_job(
         "cohort_by_procedure",
         {"clinical_entities": tables["clinical_entities"]},
-        ProcedureParams(procedure_terms="hernia repair,appendectomy,cholecystectomy"),
+        ProcedureParams(procedure_terms=",".join(terms)),
     )["cohort"]
     assert cohort.schema.equals(COHORT_PROCEDURE)
-    assert subjects(cohort) == {"10002", "10004", "10005"}
+    expected = entity_subjects(tables, "Procedure", terms)
+    assert len(expected) >= 3
+    assert subjects(cohort) == expected
 
 
 def test_cohort_by_symptoms(tables: dict) -> None:
+    terms = ["chest pain", "shortness of breath"]
     cohort = run_job(
         "cohort_by_symptoms",
         {"clinical_entities": tables["clinical_entities"]},
-        SymptomsParams(symptom_terms="chest pain,shortness of breath"),
+        SymptomsParams(symptom_terms=",".join(terms)),
     )["cohort"]
     assert cohort.schema.equals(COHORT_SYMPTOMS)
-    assert subjects(cohort) == {"10001"}
+    found: dict[tuple[str, dt.date], set[str]] = {}
+    for r in rows(tables, "clinical_entities"):
+        if r["ner_label"] == "Symptom" and r["chunk"].lower() in terms:
+            found.setdefault((r["subject_id"], r["event_date"]), set()).add(r["chunk"].lower())
+    expected = {key[0] for key, symptoms in found.items() if len(symptoms) >= 2}
+    assert expected
+    assert subjects(cohort) == expected
 
 
 def test_cohort_by_condition(tables: dict) -> None:
@@ -171,4 +229,19 @@ def test_cohort_by_condition(tables: dict) -> None:
         ConditionParams(condition_terms="hypertension,diabetes", symptom_term="chest pain"),
     )["cohort"]
     assert cohort.schema.equals(COHORT_CONDITION)
-    assert subjects(cohort) == {"10001", "10003"}
+    by_visit: dict[tuple[str, dt.date], set[str]] = {}
+    for r in rows(tables, "clinical_entities"):
+        by_visit.setdefault((r["subject_id"], r["event_date"]), set()).add(
+            f"{r['ner_label']}|{r['chunk'].lower()}"
+        )
+    expected = {
+        key[0]
+        for key, items in by_visit.items()
+        if "Symptom|chest pain" in items
+        and any(
+            i.startswith("Disease_Syndrome_Disorder|") and ("hypertension" in i or "diabetes" in i)
+            for i in items
+        )
+    }
+    assert expected
+    assert subjects(cohort) == expected
