@@ -1,29 +1,27 @@
--- Patients whose drug has a DRUG-STRENGTH relation at or above a dose in mg.
--- $drug_name matches the resolved drug name; the strength chunk must start with
--- a number ("2 mg", "5 mg").
+-- Patients whose drug has a STRENGTH fact at or above a dose in mg.
+-- $drug_name matches the drug name; the strength value must start with a number
+-- ("2 mg", "5 mg"). The patient is the Patient node's key.
 SELECT DISTINCT
-    ner.subject_id,
-    ner.event_date,
-    ner.source_name AS drug_name,
-    rx.target_name AS rxnorm_code,
-    ner.target_name AS strength
-FROM graph_edges AS ner
-LEFT JOIN graph_edges AS rx
-    ON rx.subject_id = ner.subject_id
-   AND rx.event_date = ner.event_date
-   AND rx.source_type = 'Patient'
-   AND rx.relationship = 'RXNORM_CODE'
-   AND rx.target_name IN (
-        SELECT dg.source_name
-        FROM graph_edges AS dg
-        WHERE dg.subject_id = ner.subject_id
-          AND dg.event_date = ner.event_date
-          AND dg.source_type = 'RxNorm'
-          AND dg.relationship = 'DRUG_GENERIC'
-          AND lower(dg.target_name) = lower(ner.source_name)
-   )
-WHERE ner.source_type = 'Drug'
-  AND ner.relationship = 'STRENGTH'
-  AND lower(ner.source_name) LIKE '%' || lower($drug_name) || '%'
-  AND TRY_CAST(regexp_extract(ner.target_name, '([0-9]+([.][0-9]+)?)', 1) AS DOUBLE) >= $min_strength_mg
+    patient.key AS subject_id,
+    rx.valid_from AS event_date,
+    drug.label AS drug_name,
+    rxnorm.label AS rxnorm_code,
+    strength.value AS strength
+FROM graph_edges AS rx
+JOIN graph_nodes AS patient
+    ON patient.node_id = rx.source_id AND patient.node_type = 'Patient'
+JOIN graph_nodes AS rxnorm ON rxnorm.node_id = rx.target_id
+JOIN graph_edges AS dg
+    ON dg.source_id = rx.target_id
+   AND dg.relationship = 'DRUG_GENERIC'
+   AND dg.evidence_document_id = rx.evidence_document_id
+JOIN graph_nodes AS drug ON drug.node_id = dg.target_id
+JOIN graph_edges AS strength
+    ON strength.source_id = dg.target_id
+   AND strength.relationship = 'STRENGTH'
+   AND strength.evidence_document_id = rx.evidence_document_id
+WHERE rx.relationship = 'RXNORM_CODE'
+  AND lower(drug.label) LIKE '%' || lower($drug_name) || '%'
+  AND TRY_CAST(regexp_extract(strength.value, '([0-9]+([.][0-9]+)?)', 1) AS DOUBLE)
+      >= $min_strength_mg
 ORDER BY subject_id, event_date, drug_name, strength

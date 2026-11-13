@@ -53,6 +53,10 @@ def run_job(name: str, tables: dict, params, model=None):
     return call_run(REGISTRY[name], tables, params, model)
 
 
+def graph(tables: dict) -> dict:
+    return {name: tables[name] for name in ("graph_nodes", "graph_edges")}
+
+
 def subjects(cohort) -> set[str]:
     return set(cohort.column("subject_id").to_pylist())
 
@@ -86,10 +90,28 @@ def test_build_knowledge_graph(tables: dict) -> None:
     assert outputs["graph_edges"].equals(tables["graph_edges"].select(GRAPH_EDGES.names))
 
 
+def test_graph_tables_follow_the_contract(tables: dict) -> None:
+    nodes = tables["graph_nodes"].to_pylist()
+    edges = tables["graph_edges"].to_pylist()
+    notes = {row["note_id"]: row["text"] for row in tables["notes"].to_pylist()}
+    node_ids = {node["node_id"] for node in nodes}
+    assert len(node_ids) == len(nodes)
+    assert all(node["node_id"] == f"{node['node_type']}:{node['key']}" for node in nodes)
+    assert len({edge["edge_id"] for edge in edges}) == len(edges)
+    for edge in edges:
+        assert edge["source_id"] in node_ids
+        # A fact points at a node or holds a literal value, never both.
+        assert (edge["target_id"] in node_ids) != (edge["value"] is not None)
+        assert edge["evidence_document_id"] in notes
+        if edge["evidence_start"] is not None:
+            span = notes[edge["evidence_document_id"]][
+                edge["evidence_start"] : edge["evidence_end"]
+            ]
+            assert span.lower() == (edge["value"] or span).lower()
+
+
 def test_cohort_by_drug(tables: dict) -> None:
-    cohort = run_job(
-        "cohort_by_drug", {"graph_edges": tables["graph_edges"]}, DrugParams(drug_name="lasix")
-    )["cohort"]
+    cohort = run_job("cohort_by_drug", graph(tables), DrugParams(drug_name="lasix"))["cohort"]
     assert cohort.schema.equals(COHORT_DRUG)
     assert subjects(cohort) == {"10001"}
 
@@ -97,7 +119,7 @@ def test_cohort_by_drug(tables: dict) -> None:
 def test_cohort_by_drug_date_window(tables: dict) -> None:
     cohort = run_job(
         "cohort_by_drug",
-        {"graph_edges": tables["graph_edges"]},
+        graph(tables),
         DrugParams(drug_name="isosorbide", start_date="2060-01-01", end_date="2063-01-01"),
     )["cohort"]
     assert subjects(cohort) == {"10003"}
@@ -106,7 +128,7 @@ def test_cohort_by_drug_date_window(tables: dict) -> None:
 def test_cohort_drug_strength(tables: dict) -> None:
     cohort = run_job(
         "cohort_drug_strength",
-        {"graph_edges": tables["graph_edges"]},
+        graph(tables),
         StrengthParams(drug_name="warfarin", min_strength_mg=3.0),
     )["cohort"]
     assert cohort.schema.equals(COHORT_DRUG_STRENGTH)
@@ -116,9 +138,7 @@ def test_cohort_drug_strength(tables: dict) -> None:
 
 
 def test_cohort_drug_interaction(tables: dict) -> None:
-    cohort = run_job(
-        "cohort_drug_interaction", {"graph_edges": tables["graph_edges"]}, InteractionParams()
-    )["cohort"]
+    cohort = run_job("cohort_drug_interaction", graph(tables), InteractionParams())["cohort"]
     assert cohort.schema.equals(COHORT_DRUG_INTERACTION)
     assert subjects(cohort) == {"10004"}
     assert cohort.column("interacting_drugs").to_pylist() == [["ibuprofen"]]
