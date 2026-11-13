@@ -29,11 +29,11 @@ These diagrams show the intended design, taken from the original project. They a
 
 **Workflow.** Unstructured medical sources are prepared, entities and relationships are extracted from them, the curated data is held in a catalog, a knowledge graph is built from it, and the result is a report: a patient journey and a cohort overview.
 
-![Medical knowledge graph workflow: source storage (medical literature, patient records, search logs, product labels, social media, FDA's FAERS database) flows through data curation, NLP engine, data catalog and graph engine to a medical report with patient journey and cohort overview.](docs/images/knowledge-graph-workflow.webp)
+![Medical knowledge graph workflow: source storage (medical literature, patient records, search logs, product labels, social media, FDA's FAERS database) flows through data curation, NLP engine, data catalog and graph engine to a medical report with patient journey and cohort overview.](docs/images/knowledge-graph-workflow.png)
 
 **Graph schema.** The patient is the hub. Each patient connects to clinical entities (disease, syndrome or disorder; symptom; body part; test; procedure) and to a medication path: patient, RxNorm code, drug, and the extracted details of the drug (route, form, strength, frequency, dosage, duration).
 
-![Patient knowledge graph schema: a Patient hub node linked by IS_DSD, IS_SYMPTOM, IS_BODYPART, IS_TEST and IS_PROCEDURE to clinical entities, and by RXNORM_CODE to an RxNorm node, then DRUG_GENERIC to a Drug node, then DRUG, ROUTE, FORM, STRENGTH, FREQUENCY, DOSAGE and DURATION to an extracted-entity (NER) node.](docs/images/patient-graph-schema.webp)
+![Patient knowledge graph schema: a Patient hub node linked by IS_DSD, IS_SYMPTOM, IS_BODYPART, IS_TEST and IS_PROCEDURE to clinical entities, and by RXNORM_CODE to an RxNorm node, then DRUG_GENERIC to a Drug node, then DRUG, ROUTE, FORM, STRENGTH, FREQUENCY, DOSAGE and DURATION to an extracted-entity (NER) node.](docs/images/patient-graph-schema.png)
 
 In this repository the knowledge graph is kept as tables: one table of nodes and one of relations (edges), produced by jobs. It is not a graph database.
 
