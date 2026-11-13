@@ -15,17 +15,30 @@ Build and compare patient cohorts from records and clinical notes, with inclusio
 
 ## What it does
 
-Build and compare patient cohorts from records and clinical notes, with inclusion and exclusion criteria, as tables in Facthory.
+Patient Cohort Engine turns free-text clinical notes into a patient knowledge graph and answers cohort questions on it, as tables.
 
-## How it will work in Facthory
+1. **Extract.** Two jobs read each note through a text model and return structured rows: drug usage (drug, dose, frequency, RxNorm code) and clinical entities (symptoms, procedures, tests, body parts, conditions). Answers that fail validation go to `rejected_*` tables with the reason.
+2. **Build the graph.** One SQL job turns the extracted rows into two tables, `graph_nodes` and `graph_edges`: patient, RxNorm code, drug, and the drug's strength and frequency, plus the patient's symptoms, procedures, tests and conditions. Every edge belongs to one patient on one date.
+3. **Ask cohort questions.** Six SQL jobs return the patients that match, with the evidence rows behind each match:
+   - who is prescribed a drug, optionally within a date window;
+   - who takes a drug at or above a dose;
+   - who takes a drug together with another drug from an interacting family (for example warfarin with an NSAID);
+   - who had a named procedure;
+   - who had several named symptoms on the same day;
+   - who has a condition and a named symptom on the same day.
 
-- You install it into a workspace and get a project: sample data, the analysis, the agent's instructions and starting pages.
-- Its results are tables and pages in your workspace, so you can query them, chart them and ask the agent about them, inside your permissions.
-- Sample data in this repository is synthetic or openly licensed. No real patient data.
+Step 1 needs a text model. Steps 2 and 3 are plain SQL on DuckDB and need none.
+
+## How it works in Facthory
+
+- Jobs read tables and write tables. They draw no screens and own no storage; querying, charting, joining with your own data, permissions and audit belong to the platform.
+- The knowledge graph is two tables, not a graph database. Nodes are `(node_type, name)`; edges are `(source, relationship, target)` per patient and date. Any graph view can be drawn from these tables.
+- The agent skill in `skills/` and the starter page in `pages/` describe how to work with the tables and the jobs.
+- Sample data in this repository is synthetic. No real patient data.
 
 ## The design in two pictures
 
-These diagrams show the intended design, taken from the original project. They are a concept, not a description of code that already runs here.
+These diagrams show the concept. The workflow diagram is wider than this repository: the jobs here cover the extraction, graph and cohort steps, not the whole platform.
 
 **Workflow.** Unstructured medical sources are prepared, entities and relationships are extracted from them, the curated data is held in a catalog, a knowledge graph is built from it, and the result is a report: a patient journey and a cohort overview.
 
@@ -36,14 +49,6 @@ These diagrams show the intended design, taken from the original project. They a
 ![Patient knowledge graph schema: a Patient hub node linked by IS_DSD, IS_SYMPTOM, IS_BODYPART, IS_TEST and IS_PROCEDURE to clinical entities, and by RXNORM_CODE to an RxNorm node, then DRUG_GENERIC to a Drug node, then DRUG, ROUTE, FORM, STRENGTH, FREQUENCY, DOSAGE and DURATION to an extracted-entity (NER) node.](docs/images/patient-graph-schema.png)
 
 In this repository the knowledge graph is kept as tables: one table of nodes and one of relations (edges), produced by jobs. It is not a graph database.
-
-## Not for clinical use
-
-This is software for research and analytics. It is not a medical device and must not be used to diagnose or treat a patient. Results can be wrong; a qualified person reviews them.
-
-## Disclaimers
-
-Bandpey GmbH (“Facthory”) does not dispense medical, diagnosis, or treatment advice. This Solution (“tool”) is for informational purposes only and may not be used as a substitute for professional medical advice, treatment, or diagnosis. This tool may not be used within Facthory to process Protected Health Information (“PHI”) as defined in the Health Insurance Portability and Accountability Act of 1996, unless you have executed with Facthory a contract that allows for processing PHI, an accompanying Business Associate Agreement (BAA), and are running this tool within a HIPAA Account.
 
 ## Jobs
 
@@ -63,7 +68,7 @@ The two extraction jobs take a `TextModel` (see `src/patient_cohort_engine/text/
 
 ## Data
 
-The sample tables in `data/sample/` are synthetic and openly licensed (CC0-1.0): `notes`, `posology`, `clinical_entities`, `graph_nodes` and `graph_edges`. See [data/README.md](data/README.md) for one row per file with origin and licence. No real patient data.
+The sample tables in `data/sample/` are synthetic and CC0-1.0: `notes`, `posology`, `clinical_entities`, `graph_nodes` and `graph_edges`. They are small (6 notes, 6 patients). See [data/README.md](data/README.md) for origin and licence per file. No real patient data.
 
 ## Run it locally
 
@@ -73,30 +78,27 @@ uv run python -m patient_cohort_engine cohort_drug_strength --drug-name warfarin
 uv run pytest
 ```
 
-`uv run python -m patient_cohort_engine --help` lists every job; each job has its own `--help`. The extraction jobs additionally take `--model-answers <file>` with a recorded-answers JSON (see `tests/recorded_answers.json`), since they need a model behind `text.interface`. Verified on the synthetic sample data only; restructured, not yet verified end to end in a workspace.
-
-## What changed from the original
-
-- Databricks notebooks and Spark DataFrames became a Python 3.12 package: PyArrow tables in and out, joins and aggregations in DuckDB SQL (`sql/`), one job per module.
-- The bronze/silver/gold Delta layers became named tables read and written through `io.py`; sample tables are Parquet in `data/sample/`.
-- Spark NLP for Healthcare (proprietary: `ner_posology`, `posology_re`, `ner_jsl_slim`, `sbiobertresolve_rxnorm_augmented`) became the `TextModel` interface in `text/`, with prompts in `text/prompts/` and a recorded stand-in for tests; no clinical model is bundled.
-- The Neo4j graph database became node and edge tables in DuckDB; the manual Neo4j Browser queries became parameterised cohort jobs.
-- `dbutils`, widgets and notebook cells became `Params` dataclasses, an argparse CLI (`python -m patient_cohort_engine <job>`) and plain functions.
-- Plots and graph visualisations are not ported; jobs return the tables beneath them.
+`uv run python -m patient_cohort_engine --help` lists every job; each job has its own `--help`. The extraction jobs additionally take `--model-answers <file>` with a recorded-answers JSON (see `tests/recorded_answers.json`), since they need a model behind `text.interface`. Verified on the synthetic sample data only, not yet in a Facthory workspace.
 
 ## Open points
 
-- The restructured code is now in this repository; the two diagrams above remain the design, and the list below says which parts exist and which do not.
-- Installing into Facthory is not available yet.
-- The proprietary clinical NLP is not replaced: `extract_posology` and `extract_entities` run through the `TextModel` interface, and the only shipped implementation is `text/recorded.py`, which replays recorded answers for tests and demos. A rules-based stand-in for clinical NER would be dishonest, so none is shipped; Facthory must plug a real model in behind `text.interface`.
-- RxNorm resolution is folded into the extraction prompt; a real resolver or vocabulary service is not ported.
-- The Neo4j graph database, its APOC procedures and the Graph Data Science library are not ported; the graph is node and edge tables only, and no graph algorithms (for example NetworkX) are wired up yet.
-- The original's 965-record `data.csv` from the John Snow Labs workshop repository was not republished: its licence was not verified. This repository ships its own smaller synthetic sample instead.
-- Byte offsets of the original extraction outputs (`entity1_begin`/`entity1_end`, `begin`/`end`) and the `rx_text` intermediate column are not ported; nothing downstream used them.
-- The original's future-dated synthetic records (2060-2125) are represented with dates 2060-2065 in the sample.
-- No orchestrator or DAG files: Facthory (or a later scheduler) runs the jobs.
-- The Dockerfile follows the template but the image has not been built or verified here.
-- `duckdb>=2.0`'s Arrow API moved (`to_arrow_table` replaces `fetch_arrow_table`); the code targets DuckDB 2.0 exactly.
+- **No clinical text model ships.** `extract_posology` and `extract_entities` run through the `TextModel` interface. The only implementation is `text/recorded.py`, which replays recorded answers for the sample notes. A model must be plugged in behind `text/interface.py` before new notes can be processed. A rules-based stand-in for clinical extraction is deliberately not provided.
+- **RxNorm resolution** happens inside the extraction prompt. There is no vocabulary lookup, and the codes in the sample are illustrative.
+- **The graph tables have no node ids and no link back to the source text** (note id or span). Edges identify nodes by type and name only.
+- **No graph algorithms** are included. Paths, similarity and communities would be added as jobs over the edge tables.
+- **Installing into Facthory is not available yet.** The code is verified on the sample data on a laptop only.
+- **The sample is small.** Six notes show the shape of the tables, not realistic volumes.
+- **The Dockerfile has not been built or verified.**
+- **DuckDB 2.x only.** The code uses the DuckDB 2.0 Arrow API (`to_arrow_table`).
+- No orchestrator or DAG files: Facthory, or a scheduler, calls the jobs.
+
+## Not for clinical use
+
+This is software for research and analytics. It is not a medical device and must not be used to diagnose or treat a patient. Results can be wrong; a qualified person reviews them.
+
+## Disclaimers
+
+Bandpey GmbH (“Facthory”) does not dispense medical, diagnosis, or treatment advice. This Solution (“tool”) is for informational purposes only and may not be used as a substitute for professional medical advice, treatment, or diagnosis. This tool may not be used within Facthory to process Protected Health Information (“PHI”) as defined in the Health Insurance Portability and Accountability Act of 1996, unless you have executed with Facthory a contract that allows for processing PHI, an accompanying Business Associate Agreement (BAA), and are running this tool within a HIPAA Account.
 
 ## Licence
 

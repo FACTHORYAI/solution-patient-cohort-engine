@@ -16,7 +16,3 @@ The RxNorm codes in `posology.parquet` are illustrative identifiers for the samp
 (aspirin 1191, warfarin 11289, furosemide 4603 are public RxNorm codes; the rest are
 not verified against a vocabulary). A production run resolves codes against a real
 drug vocabulary behind the text model.
-
-The original solution's 965-record `data.csv` (John Snow Labs workshop repository)
-was **not** republished here: its licence was not verified, so this repository ships
-its own smaller synthetic sample instead.
