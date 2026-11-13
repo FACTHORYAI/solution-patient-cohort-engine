@@ -45,11 +45,58 @@ This is software for research and analytics. It is not a medical device and must
 
 Bandpey GmbH (“Facthory”) does not dispense medical, diagnosis, or treatment advice. This Solution (“tool”) is for informational purposes only and may not be used as a substitute for professional medical advice, treatment, or diagnosis. This tool may not be used within Facthory to process Protected Health Information (“PHI”) as defined in the Health Insurance Portability and Accountability Act of 1996, unless you have executed with Facthory a contract that allows for processing PHI, an accompanying Business Associate Agreement (BAA), and are running this tool within a HIPAA Account.
 
+## Jobs
+
+| Job | What it does | Inputs | Outputs |
+| --- | --- | --- | --- |
+| `extract_posology` | Extracts drug-usage relations (dose, frequency and more) with RxNorm codes from notes | `notes` | `posology`, `rejected_posology` |
+| `extract_entities` | Extracts symptoms, procedures, tests, body parts and conditions from notes | `notes` | `clinical_entities`, `rejected_entities` |
+| `build_knowledge_graph` | Builds the clinical knowledge graph as node and edge tables | `notes`, `posology`, `clinical_entities` | `graph_nodes`, `graph_edges` |
+| `cohort_by_drug` | Patients prescribed a drug, optionally within a date window | `graph_edges` | `cohort` |
+| `cohort_drug_strength` | Patients whose drug has a strength relation at or above a dose in mg | `graph_edges` | `cohort` |
+| `cohort_drug_interaction` | Patients on a primary drug who also take one of a family of interacting drugs | `graph_edges` | `cohort` |
+| `cohort_by_procedure` | Patients who had a named procedure | `clinical_entities` | `cohort` |
+| `cohort_by_symptoms` | Patients with several named symptoms on the same date | `clinical_entities` | `cohort` |
+| `cohort_by_condition` | Patients with a condition and a named symptom on the same date | `clinical_entities` | `cohort` |
+
+The two extraction jobs take a `TextModel` (see `src/patient_cohort_engine/text/interface.py`) as a third argument; Facthory provides model access. Named measures live in `metrics/`.
+
+## Data
+
+The sample tables in `data/sample/` are synthetic and openly licensed (CC0-1.0): `notes`, `posology`, `clinical_entities`, `graph_nodes` and `graph_edges`. See [data/README.md](data/README.md) for one row per file with origin and licence. No real patient data.
+
+## Run it locally
+
+```
+uv sync
+uv run python -m patient_cohort_engine cohort_drug_strength --drug-name warfarin --min-strength-mg 2
+uv run pytest
+```
+
+`uv run python -m patient_cohort_engine --help` lists every job; each job has its own `--help`. The extraction jobs additionally take `--model-answers <file>` with a recorded-answers JSON (see `tests/recorded_answers.json`), since they need a model behind `text.interface`. Verified on the synthetic sample data only; restructured, not yet verified end to end in a workspace.
+
+## What changed from the original
+
+- Databricks notebooks and Spark DataFrames became a Python 3.12 package: PyArrow tables in and out, joins and aggregations in DuckDB SQL (`sql/`), one job per module.
+- The bronze/silver/gold Delta layers became named tables read and written through `io.py`; sample tables are Parquet in `data/sample/`.
+- Spark NLP for Healthcare (proprietary: `ner_posology`, `posology_re`, `ner_jsl_slim`, `sbiobertresolve_rxnorm_augmented`) became the `TextModel` interface in `text/`, with prompts in `text/prompts/` and a recorded stand-in for tests; no clinical model is bundled.
+- The Neo4j graph database became node and edge tables in DuckDB; the manual Neo4j Browser queries became parameterised cohort jobs.
+- `dbutils`, widgets and notebook cells became `Params` dataclasses, an argparse CLI (`python -m patient_cohort_engine <job>`) and plain functions.
+- Plots and graph visualisations are not ported; jobs return the tables beneath them.
+
 ## Open points
 
-- The analysis code is not in this repository yet; it is being restructured from the original project. Until it lands, nothing here runs.
+- The restructured code is now in this repository; the two diagrams above remain the design, and the list below says which parts exist and which do not.
 - Installing into Facthory is not available yet.
-- The two diagrams above are the design, not a map of finished code. This list will name which parts exist as code and which are still to be written.
+- The proprietary clinical NLP is not replaced: `extract_posology` and `extract_entities` run through the `TextModel` interface, and the only shipped implementation is `text/recorded.py`, which replays recorded answers for tests and demos. A rules-based stand-in for clinical NER would be dishonest, so none is shipped; Facthory must plug a real model in behind `text.interface`.
+- RxNorm resolution is folded into the extraction prompt; a real resolver or vocabulary service is not ported.
+- The Neo4j graph database, its APOC procedures and the Graph Data Science library are not ported; the graph is node and edge tables only, and no graph algorithms (for example NetworkX) are wired up yet.
+- The original's 965-record `data.csv` from the John Snow Labs workshop repository was not republished: its licence was not verified. This repository ships its own smaller synthetic sample instead.
+- Byte offsets of the original extraction outputs (`entity1_begin`/`entity1_end`, `begin`/`end`) and the `rx_text` intermediate column are not ported; nothing downstream used them.
+- The original's future-dated synthetic records (2060-2125) are represented with dates 2060-2065 in the sample.
+- No orchestrator or DAG files: Facthory (or a later scheduler) runs the jobs.
+- The Dockerfile follows the template but the image has not been built or verified here.
+- `duckdb>=2.0`'s Arrow API moved (`to_arrow_table` replaces `fetch_arrow_table`); the code targets DuckDB 2.0 exactly.
 
 ## Licence
 

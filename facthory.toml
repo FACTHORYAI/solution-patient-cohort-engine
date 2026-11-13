@@ -1,0 +1,106 @@
+[solution]
+id = "com.facthory.patient_cohort_engine"
+title = "Patient Cohort Engine"
+version = "0.1.0"
+contract = "0-draft"
+licence = "Apache-2.0"
+health_related = true
+
+# Sample tables. All synthetic, generated for this repository (CC0-1.0); see data/README.md.
+[[dataset]]
+name = "notes"
+path = "data/sample/notes.parquet"
+synthetic = true
+licence = "CC0-1.0"
+
+[[dataset]]
+name = "posology"
+path = "data/sample/posology.parquet"
+synthetic = true
+licence = "CC0-1.0"
+
+[[dataset]]
+name = "clinical_entities"
+path = "data/sample/clinical_entities.parquet"
+synthetic = true
+licence = "CC0-1.0"
+
+[[dataset]]
+name = "graph_nodes"
+path = "data/sample/graph_nodes.parquet"
+synthetic = true
+licence = "CC0-1.0"
+
+[[dataset]]
+name = "graph_edges"
+path = "data/sample/graph_edges.parquet"
+synthetic = true
+licence = "CC0-1.0"
+
+# The two extraction jobs take a TextModel as a third argument; Facthory provides
+# model access. The repository ships only a recorded stand-in (text/recorded.py).
+[[job]]
+name = "extract_posology"
+entry = "patient_cohort_engine.jobs.extract_posology:run"
+mode = "job"
+inputs = ["notes"]
+outputs = ["posology", "rejected_posology"]
+
+[[job]]
+name = "extract_entities"
+entry = "patient_cohort_engine.jobs.extract_entities:run"
+mode = "job"
+inputs = ["notes"]
+outputs = ["clinical_entities", "rejected_entities"]
+
+[[job]]
+name = "build_knowledge_graph"
+entry = "patient_cohort_engine.jobs.build_knowledge_graph:run"
+mode = "call"
+inputs = ["notes", "posology", "clinical_entities"]
+outputs = ["graph_nodes", "graph_edges"]
+
+[[job]]
+name = "cohort_by_drug"
+entry = "patient_cohort_engine.jobs.cohort_by_drug:run"
+mode = "call"
+inputs = ["graph_edges"]
+outputs = ["cohort"]
+
+[[job]]
+name = "cohort_drug_strength"
+entry = "patient_cohort_engine.jobs.cohort_drug_strength:run"
+mode = "call"
+inputs = ["graph_edges"]
+outputs = ["cohort"]
+
+[[job]]
+name = "cohort_drug_interaction"
+entry = "patient_cohort_engine.jobs.cohort_drug_interaction:run"
+mode = "call"
+inputs = ["graph_edges"]
+outputs = ["cohort"]
+
+[[job]]
+name = "cohort_by_procedure"
+entry = "patient_cohort_engine.jobs.cohort_by_procedure:run"
+mode = "call"
+inputs = ["clinical_entities"]
+outputs = ["cohort"]
+
+[[job]]
+name = "cohort_by_symptoms"
+entry = "patient_cohort_engine.jobs.cohort_by_symptoms:run"
+mode = "call"
+inputs = ["clinical_entities"]
+outputs = ["cohort"]
+
+[[job]]
+name = "cohort_by_condition"
+entry = "patient_cohort_engine.jobs.cohort_by_condition:run"
+mode = "call"
+inputs = ["clinical_entities"]
+outputs = ["cohort"]
+
+[skill]
+instructions = "skills/patient_cohort_engine.md"

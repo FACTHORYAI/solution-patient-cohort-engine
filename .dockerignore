@@ -1,0 +1,11 @@
+legacy/
+tests/
+.git/
+.venv/
+__pycache__/
+output/
+dist/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
