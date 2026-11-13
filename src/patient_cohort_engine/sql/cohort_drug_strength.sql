@@ -14,7 +14,7 @@ LEFT JOIN graph_edges AS rx
    AND rx.source_type = 'Patient'
    AND rx.relationship = 'RXNORM_CODE'
    AND rx.target_name IN (
-        SELECT dg.target_name
+        SELECT dg.source_name
         FROM graph_edges AS dg
         WHERE dg.subject_id = ner.subject_id
           AND dg.event_date = ner.event_date

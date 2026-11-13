@@ -112,6 +112,7 @@ def test_cohort_drug_strength(tables: dict) -> None:
     assert cohort.schema.equals(COHORT_DRUG_STRENGTH)
     assert subjects(cohort) == {"10002"}
     assert cohort.column("strength").to_pylist() == ["5 mg"]
+    assert cohort.column("rxnorm_code").to_pylist() == ["11289"]
 
 
 def test_cohort_drug_interaction(tables: dict) -> None:
